@@ -1,0 +1,26 @@
+[
+	{
+		"id_operadore": 1,
+		"nombre": "Wilhelm",
+		"apellido": "Steinitz",
+		"dni": 5053058,
+		"fecha_ingreso": "2018-05-14",
+		"disponible": true
+	},
+	{
+		"id_operadore": 2,
+		"nombre": "Emanuel",
+		"apellido": "Lasker",
+		"dni": 24610127,
+		"fecha_ingreso": "2018-12-24",
+		"disponible": true
+	},
+	{
+		"id_operadore": 3,
+		"nombre": "Jose Raul",
+		"apellido": "Capablanca",
+		"dni": 9068298,
+		"fecha_ingreso": "2019-11-19",
+		"disponible": true
+	}
+]

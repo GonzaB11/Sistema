@@ -1,0 +1,714 @@
+= Informe trabajo práctico de Bases de Datos I
+
+Autores
+
+* Aguayo Christian <christianaguayo783@gmail.com>
+* Aquino Abel <abelaquino02j@gmail.com>
+* Benitez Gonzalo <gonza.benitez532@gmail.com>
+* Ojeda Martin <martinojeda803@gmail.com>
+
+Docentes
+
+* Bertaccini Daniel
+* Rondelli Daniel
+
+v1, {2024-11-25}, (COM-02) 
+
+:title-page:
+:numbered:
+:source-highlighter: coderay
+:tabsize: 4
+
+== Introducción
+
+El sistema administra la cola de espera de llamadas recibidas, la atención de operadores, y el manejo 
+de trámites de clientes, además mantiene toda la información de los clientes y de los operadores. 
+Los clientes son informados vía email cuando ocurren eventos importantes sobre su trámite. 
+Además, genera información sumarizada en tiempo real sobre la duración promedio de las llamadas 
+atendidas por cada operador.
+
+== Descripción
+
+Dificultades:
+
+* Inicialmente tuvimos dificultades para subir los archivos.sql al repositorio en gitlab 
+utilizando la consola. Luego de varias pruebas de comandos e investigando en internet, pudimos solucionarlo 
+y subir los archivos mediante commits y push.
+* Otro problema fue al crear el método "ingreso de llamado", ya que no encontrabamos la forma de como generar 
+los "id cola atencion" y "id_error" cada vez que se ingresaba el llamado de un cliente.
+* Luego, otro problema fue que al momento de ingresar un cliente que no existe, el programa lanza 
+error en una de las foreign key "error cliente fk". Lo solucionamos evitando que se inserte cualquier 
+id_cliente en la tabla error si el cliente no existe. 
+* Tuvimos dificultades al momento de nombrar la función "desistir_llamado.sql". Sin darnos cuenta, le pusimos el nombre 
+de "desistimiento de llamado" y al intentar llamarla mediante la terminal para corroborar que funcionará, nos apareció el 
+error de que la función no existía.
+* Otra problemática fue con las foreign keys, ya que cuando al probar los datos tuvimos 
+que modificar dichas fk para que funcionará el código. 
+* Al trabajar con Go, se nos presento un inconveniente, debido que tuvimos problemas al 
+compilar, esto ocurrió mayormente por errores sintácticos tanto en el archivo Go como en los archivos.sql.
+
+Decisiones:
+
+* Nos decidimos en crear la base de datos dentro del go con un método, nos parecio màs 
+bonito para el diseño, antes la creación de la base de datos se encontraba
+en el mismo archivo donde se creaban las tablas.
+* Separamos las funciones por archivo, para que quede más ordenado.
+
+== Implementación
+
+[source, sql]
+----
+create or replace function ingreso_de_llamado (ingreso_id_cliente int) returns int as $$
+declare
+	id_cola int;
+begin
+	if not exists (
+		select 1 from cliente 
+		where id_cliente = ingreso_id_cliente) then
+		insert into error(
+			operacion, 
+			f_error,
+			motivo
+			)
+		values( 
+			'nuevo llamado',
+			current_timestamp, 
+			'cliente no valido'
+			);	
+		return -1;
+	end if;
+
+	insert into cola_atencion(
+		id_cliente, 
+		f_inicio_llamado, 
+		estado
+		)
+	values (
+		ingreso_id_cliente, 
+		current_timestamp,  
+		'en espera'
+		)
+	returning id_cola_atencion into id_cola;
+	return id_cola;
+end;
+$$ language plpgsql;
+----
+La función ingreso_de_llamado se encarga de registrar un llamado en la 
+cola de atención. Primero verifica si el cliente pasado por parametro
+existe en la tabla cliente, si no existe guarda el registro en la
+tabla error con los detalles necesarios y retorna -1. Si existe,
+inserta un nuevo registro en la tabla cola_atencion, almacena el 
+id_cola_atencion en la variable id_cola y por último retorna el
+valor de id_cola.
+
+[source, sql]
+----
+create or replace function desistir_llamado (ingreso_id_cola_atencion int) returns boolean as $$  
+declare
+	id  int;
+begin
+	if not exists (
+		select 1 from cola_atencion 
+		where id_cola_atencion= ingreso_id_cola_atencion) then
+		insert into error( 
+			operacion, 
+			f_error,
+			motivo
+			)
+		values (
+			'baja llamado',  
+			current_timestamp,
+			'id cola de atencion no valido'
+			);
+		return false;
+	end if;
+
+	select id_cliente into id 
+	from cola_atencion 
+	where id_cola_atencion = ingreso_id_cola_atencion;
+
+	if not exists (
+		select 1 from cola_atencion 
+		where id_cola_atencion= ingreso_id_cola_atencion 
+		and estado= 'en espera'
+		or estado= 'en linea') then
+		insert into error(
+			operacion, 
+			id_cliente, 
+			id_cola_atencion, 
+		 	f_error,
+		 	motivo
+		 	)
+		values ( 
+			'baja llamado',
+			id,
+			ingreso_id_cola_atencion, 
+			current_timestamp,
+			'el llamado no esta en espera ni en linea'
+			);
+		return false;
+	end if; 				
+
+	if exists (
+		select 1 from cola_atencion 
+		where id_cola_atencion= ingreso_id_cola_atencion 
+		and estado = 'en linea') then
+		update cola_atencion 
+		set f_fin_atencion= current_timestamp 
+		where id_cola_atencion = ingreso_id_cola_atencion;
+	end if;
+
+	update cola_atencion 
+	set estado= 'desistido' 
+	where id_cola_atencion = ingreso_id_cola_atencion;
+	return true;
+end;
+$$ language plpgsql;	
+----
+La función desistir_llamado se encarga de registrar que un cliente desiste
+de un llamado en la cola de atención. Primero verifica si el paramatro 
+proporcionado existe en la tabla cola_atencion. Si este no existe, se 
+agregan los detalles correspondientes en la tabla error,y retorna false. 
+Luego, verifica si el estado del  llamado se encuentra en 'espera' o 
+'en linea', si esto no ocurre registra otro error y luego devuelve false. 
+Si el estado es 'en linea', se actualiza f_fin_atencion con el tiempo actual 
+y cambia el estado del llamado en la tabla cola_atencion a desistido, 
+por último retorna true.
+
+[source, sql]
+----
+create or replace function atender_llamado() returns boolean as $$
+declare
+	id_cliente_en_espera int;
+	id_cola_atencion_en_espera int;
+	id_operadore_disponible int;
+
+begin
+	if not exists (
+		select 1 from cola_atencion 
+		where estado = 'en espera') then
+		insert into error ( 
+			operacion, 
+			f_error,
+			motivo)
+		values (
+			'atencion llamado', 
+			current_timestamp,
+			'no existe ningune llamado en espera'
+			);
+		return false;
+	end if;
+
+	select id_cliente,id_cola_atencion 
+		into id_cliente_en_espera, id_cola_atencion_en_espera 
+		from cola_atencion 
+		where estado = 'en espera' 
+		order by f_inicio_llamado limit 1;
+
+	if not exists (
+		select 1 from operadore 
+		where disponible = true) then
+		insert into error ( 
+			operacion, 
+			id_cliente, 
+			id_cola_atencion, 
+			f_error,
+			motivo
+			)
+		values ( 
+			'atencion llamado',
+			id_cliente_en_espera,
+			id_cola_atencion_en_espera,
+			current_timestamp, 
+			'no existe ningun operadore disponible'
+			);
+		return false;
+	end if;
+
+	select id_operadore
+		into id_operadore_disponible
+		from operadore
+		where disponible = true
+		limit 1;
+
+	update operadore
+		set disponible = false
+		where id_operadore = id_operadore_disponible;
+
+	update cola_atencion
+		set id_operadore = id_operadore_disponible, 
+			f_inicio_atencion = current_timestamp, 
+			estado = 'en linea'
+		where id_cola_atencion = id_cola_atencion_en_espera;
+
+	return true;
+end;
+$$ language plpgsql;
+----
+La función atender_llamado es la encargada de asignar un operador disponible
+al llamado más antigua en estado 'en espera'. Primero busca si hay llamados
+en estado 'en espera' en la tabla cola_atencion. Si no existe, registra un 
+error en la tabla error y retorna false. Luego, toma el id_cliente y 
+id_cola_atencion del llamado más antiguo en espera, verifica si algún operador 
+esta disponible, si no hay ninguno disponible registra el error con los detalles 
+y retorna false. Si existe algún operador disponible lo selecciona y lo 
+actualiza a no disponible, actualiza el llamado más antiguo y cambia el estado 
+a 'en linea' y retorna true.
+
+[source, sql]
+----
+create or replace function alta_tramite(ingreso_id_cola_atencion int, 
+		ingreso_tipo_tramite char(10), ingreso_descripcion text) returns int as $$
+
+declare
+	id_tramite_alta int;
+	id_cliente_alta int;
+begin
+	if ingreso_tipo_tramite not in ('consulta', 'reclamo') then
+		insert into error (
+			operacion,  
+			id_cola_atencion, 
+			tipo_tramite, 
+			id_tramite, 
+			estado_cierre_tramite, 
+			f_error, 
+			motivo
+			)
+		values ( 
+			'Alta tramite',
+			 ingreso_id_cola_atencion, 
+			 ingreso_tipo_tramite,   
+			 current_timestamp, 
+			 'Tipo de trámite no válido'
+			 );
+		return -1;
+	end if;
+
+	select id_cliente into id_cliente_alta
+	from cola_atencion
+	where id_cola_atencion = ingreso_id_cola_atencion
+	and estado != 'espera';
+	if not found then
+		insert into error ( 
+			operacion,  
+			id_cola_atencion, 
+			tipo_tramite, 
+			f_error, 
+			motivo
+			)
+		values ( 
+			'Alta tramite',  
+			ingreso_id_cola_atencion, 
+			ingreso_tipo_tramite, 
+			current_timestamp, 
+			'El id de cola de atención no es válido'
+			);
+		return -1;
+	end if;
+
+	insert into tramite( 
+		id_cliente, 
+		id_cola_atencion,
+		tipo_tramite, 
+		f_inicio_gestion, 
+		descripcion,  
+		estado)
+	values( 
+		id_cliente_alta, 
+		ingreso_id_cola_atencion, 
+		ingreso_tipo_tramite, 
+		current_timestamp, 
+		ingreso_descripcion,  
+		'iniciado'
+		)
+		returning id_tramite into id_tramite_alta;
+		
+	return id_tramite_alta;
+
+end;
+$$ language plpgsql;
+----
+La función alta_tramite se encarga de registrar un nuevo trámite. Primero verifica
+que el parametro ingreso_tipo_tramite no sea 'consulta' o 'reclamo', si esto sucede
+registra un error en la tabla error y retorna -1. Luego, verifica que el parametro
+ingreso_id_cola_atencion se encuentre en la tabla cola_atencion y que el estado
+no sea 'espera'. Si no se cumple, se registra en la tabla error y retorna -2. En 
+cambio, si se cumple se inserta un nuevo trámite en la tabla tramite con la 
+información correspondiente y se cambia el estado a 'iniciado', y retorna el
+id_tramite_alta.
+
+[source, sql]
+----
+create or replace function finalizar_llamado (id_cola_atencion_a_finalizar int) returns boolean as $$  
+declare
+	id  int;
+begin
+	if not exists (
+		select 1 from cola_atencion 
+		where id_cola_atencion = id_cola_atencion_a_finalizar) then
+		insert into error( 
+			operacion, 
+			f_error,
+			motivo)
+		values ( 
+			'fin llamado',  
+			current_timestamp,
+			'id cola de atencion no valido'
+			);
+		return false;
+	end if;
+
+	select id_cliente into id 
+	from cola_atencion 
+	where id_cola_atencion = id_cola_atencion_a_finalizar;
+	
+	if not exists (
+		select 1 from cola_atencion 
+		where id_cola_atencion= id_cola_atencion_a_finalizar 
+		and estado= 'en linea') then
+		insert into error( 
+			operacion, 
+			id_cliente, 
+			id_cola_atencion, 
+			f_error,
+			motivo
+			)
+		values (
+			'fin llamado',
+			id,
+			id_cola_atencion_a_finalizar, 
+			current_timestamp,
+			'el llamado no esta en linea'
+			);
+		return false;
+	end if; 
+
+	update cola_atencion 
+	set estado= 'finalizado', f_fin_atencion= current_timestamp  
+	where id_cola_atencion = id_cola_atencion_a_finalizar;
+	return true;
+end;
+$$ language plpgsql;
+----
+La función finalizar_llamado se encarga de finalizar un llamado especìfico. Primero
+se verifica que el id_cola_atencion_a_finalizar pasado por parametro exista en
+la cola_atencion, si este no existe registra un error y retorna false. Luego, 
+verifica si el estado del llamado es 'en linea', si no esta registra el error
+y devuelve false. En cambio, si el resultado es correcto actualiza el estado del
+llamado a 'finalizado' y registra el tiempo en el que fue finalizado, por último 
+retorna true.
+
+[source, sql]
+----
+create or replace function rendimiento_operadore_desistido() returns trigger as $$
+declare
+    duracion interval;
+    r_id_operadore int;
+    fecha_fin date;
+begin
+    duracion := new.f_fin_atencion - new.f_inicio_atencion;
+    r_id_operadore := new.id_operadore;
+    fecha_fin := new.f_fin_atencion;
+
+	if not exists (
+		select 1 from  rendimiento_operadore 
+		where id_operadore = r_id_operadore)then
+		insert into rendimiento_operadore (
+			id_operadore, 
+			fecha_atencion,
+			duracion_total_atenciones,
+			cantidad_total_atenciones,
+			duracion_promedio_total_atenciones,
+			duracion_atenciones_desistidas, 
+			cantidad_atenciones_desistidas,
+			duracion_promedio_atenciones_desistidas
+			)
+		values(
+			r_id_operadore,
+			fecha_fin,
+			duracion,
+		 	1,
+			duracion,
+			duracion,
+			1,
+			duracion
+	  		);	
+	else
+		update rendimiento_operadore 
+    	set
+        	duracion_total_atenciones = duracion_total_atenciones + duracion,
+        	cantidad_total_atenciones = cantidad_total_atenciones + 1,
+        	duracion_promedio_total_atenciones = duracion_total_atenciones / cantidad_total_atenciones,
+        	duracion_atenciones_desistidas = duracion_atenciones_desistidas + duracion,
+        	cantidad_atenciones_desistidas = cantidad_atenciones_desistidas + 1,
+        	duracion_promedio_atenciones_desistidas = duracion_atenciones_desistidas / cantidad_atenciones_desistidas
+    	where
+        	id_operadore = r_id_operadore
+       		and fecha_atencion = fecha_fin;
+    end if;
+    return new;
+end;
+$$ language plpgsql;
+
+
+create trigger rendimiento_operadore_desistido_trg
+after update on cola_atencion
+for each row
+when (new.estado = 'desistido')
+execute function rendimiento_operadore_desistido();
+----
+En la función rendimiento_operadore_desistido utilizamos un trigger para mantener
+actualizada la tabla rendimiento_operadore cada vez que insertamos un registro
+en cola_atencion con el estado 'desistido'. Primero calcula la duración de la 
+atención y actualiza un registro en la tabla rendimiento_operadore, dependiendo
+si ya existe un registro para el operador en esa fecha. Luego, calcula el tiempo
+total de la atención, almacena el id_operadore y guarda la f_fin_atencion.
+Después, verifica si existe un registro del operador en rendimiento_operadore, 
+si no existe inserta un nuevo registro con los datos iniciales. En cambio, si
+existe, actualiza los valores agregados.
+
+[source, sql]
+----
+create or replace function rendimiento_operadore_finalizado() returns trigger as $$
+declare
+    duracion interval;
+    r_id_operadore int;
+    fecha_fin date;
+begin
+    duracion := new.f_fin_atencion - new.f_inicio_atencion;
+    r_id_operadore := new.id_operadore;
+    fecha_fin := new.f_fin_atencion;
+
+	 if not exists (
+	 	select 1 from rendimiento_operadore 
+	 	where id_operadore = r_id_operadore ) then
+        insert into rendimiento_operadore (
+            id_operadore, 
+            fecha_atencion,
+            duracion_total_atenciones,
+            cantidad_total_atenciones,
+            duracion_promedio_total_atenciones,
+            duracion_atenciones_finalizadas,
+            cantidad_atenciones_finalizadas,
+            duracion_promedio_atenciones_finalizadas,
+            duracion_atenciones_desistidas, 
+            cantidad_atenciones_desistidas,
+            duracion_promedio_atenciones_desistidas
+        )
+        values (
+            r_id_operadore,
+            fecha_fin,
+            duracion,
+            1,
+            duracion,
+            duracion,
+            1,
+            duracion,
+            null,
+            null,
+            null
+        );
+        
+    else 	
+    	update rendimiento_operadore
+    	set
+        	duracion_total_atenciones = duracion_total_atenciones + duracion,
+        	cantidad_total_atenciones = cantidad_total_atenciones + 1,
+        	duracion_promedio_total_atenciones = duracion_total_atenciones / cantidad_total_atenciones,
+        	duracion_atenciones_finalizadas = duracion_atenciones_finalizadas + duracion,
+        	cantidad_atenciones_finalizadas = cantidad_atenciones_finalizadas + 1,
+        	duracion_promedio_atenciones_finalizadas = duracion_atenciones_finalizadas / cantidad_atenciones_finalizadas
+    	where
+        	id_operadore = r_id_operadore
+       		and fecha_atencion = fecha_fin;
+	end if;
+    return new;
+end;
+$$ language plpgsql;
+
+create trigger rendimiento_operadore_finalizado_trg
+after update on cola_atencion
+for each row
+when (new.estado = 'finalizado')
+execute function rendimiento_operadore_finalizado();
+----
+La función rendimiento_operadore_finalizado utiliza un trigger para actualizar el
+rendimiento de los operadores cuando una atención es finalizada. Primero, calcula
+la duración de la atención, luego verifica si existe el operador en rendimiento_operadore,
+si no existe inserta un nuevo registro. En cambio, si existe actualiza el registro.
+
+[source, go]
+----
+func main() {
+	var db *sql.DB
+	var datosPrueba []DatosDePrueba
+	var clientes []Cliente
+	var operadores []Operadore
+
+	for {
+		mostrarMenu()
+					
+		var opcion int
+		fmt.Print("Elegir una opcion: ")
+		_, err := fmt.Scanf("%d", &opcion)
+					
+		if err != nil {
+			fmt.Println (err)
+		}
+								
+		switch opcion {
+			case 1: 
+				crearBaseDatos()
+				db, err = sql.Open("postgres", "user=postgres host=localhost dbname=aguayo_aquino_benitez_ojeda_db1 sslmode=disable")
+				if err != nil {
+					log.Fatal(err)
+				}
+				defer db.Close()
+			case 2:
+				db, err := sql.Open("postgres", "user=postgres host=localhost dbname=aguayo_aquino_benitez_ojeda_db1 sslmode=disable")
+				if err != nil {
+			 		log.Fatal(err)
+			 	}
+				defer db.Close()
+				_, err = db.Exec(leerArchivo("tablas.sql"))
+				if err!= nil {
+					log.Fatal(err)
+				}
+				fmt.Println ("Tablas creadas")	
+			case 3:
+				db, err := sql.Open("postgres", "user=postgres host=localhost dbname=aguayo_aquino_benitez_ojeda_db1 sslmode=disable")
+				if err != nil {
+					log.Fatal(err)
+				}
+				defer db.Close()
+				_, err = db.Exec(leerArchivo("pk_fk.sql"))
+				if err != nil {
+					log.Fatal(err)
+				}
+				fmt.Println("Pk y Fk creadas")
+			case 4:
+				db, err := sql.Open("postgres", "user=postgres host=localhost dbname=aguayo_aquino_benitez_ojeda_db1 sslmode=disable")
+				if err != nil {
+					log.Fatal(err)
+				}
+				defer db.Close()
+				_, err = db.Exec(leerArchivo("borrar_pk_fk.sql"))
+				if err != nil {
+					log.Fatal(err)
+				}
+				fmt.Println("Se borraron Pk y Fk")
+			case 5:
+				db, err := sql.Open("postgres", "user=postgres host=localhost dbname=aguayo_aquino_benitez_ojeda_db1 sslmode=disable")
+				if err != nil {
+					log.Fatal(err)
+				}
+				defer db.Close()
+						        
+				cargarDatos("clientes.json", &clientes)
+				insertarClientes(clientes, db)
+					
+				cargarDatos("operadores.json", &operadores)
+				insertarOperadores(operadores, db)
+					
+				cargarDatos("datos_de_prueba.json", &datosPrueba)
+				insertarDatosDePruebas(datosPrueba,db)
+
+				fmt.Println("Datos cargados en las tablas")	
+			case 6:
+				db, err := sql.Open("postgres", "user=postgres host=localhost dbname=aguayo_aquino_benitez_ojeda_db1 sslmode=disable")
+				if err != nil {
+					log.Fatal(err)
+				}
+				defer db.Close()
+
+				_, err = db.Exec(leerArchivo("ingreso_de_llamado.sql"))
+				if err != nil {
+					log.Fatalf("ingreso llamado %d",err)
+				}
+
+				_, err = db.Exec(leerArchivo("atender_llamado.sql"))
+				if err != nil {
+					log.Fatalf("atender llamado %d",err)
+				}
+
+				_, err = db.Exec(leerArchivo("alta_tramite.sql"))
+				if err != nil {
+					log.Fatalf("alta tramite %d",err)
+				}
+					
+				_, err = db.Exec(leerArchivo("desistir_llamado.sql"))
+				if err != nil {
+					log.Fatalf("desistir llamado %d",err)
+				}
+
+				_, err = db.Exec(leerArchivo("finalizar_llamado.sql"))
+				if err != nil {
+					log.Fatalf("finalizar llamado %d", err)
+				}
+
+				_, err = db.Exec(leerArchivo("rendimiento_operadore_desistido.sql"))
+				if err != nil {
+					log.Fatalf("rendimiento operadore desistido %d",err)
+				}
+
+				_, err = db.Exec(leerArchivo("rendimiento_operadore_finalizado.sql"))
+				if err != nil {
+					log.Fatalf("rendimiento operadore finalizado %d",err)
+				}
+
+				fmt.Println("Stored procedures y triggers creados")
+			case 7:
+				db, err := sql.Open("postgres", "user=postgres host=localhost dbname=aguayo_aquino_benitez_ojeda_db1 sslmode=disable")
+				if err !=  nil {
+					log.Fatal(err)
+				} 
+				defer db.Close()
+
+				iniciarPruebas(datosPrueba,db)
+			case 8:
+				db, err := bolt.Open("aguayo_aquino_benitez_ojeda_NoSQL.db", 0600, nil)
+				if err != nil{
+					log.Fatal(err)
+				}
+				defer db.Close()
+				
+				cargarDatosEnBolt(db)											
+			case 9:
+				fmt.Println("Saliendo")
+				os.Exit(0)				
+		    }
+        }    
+}
+----
+Esta es una aplicación go que implementa un menú interactivo para 
+que el usuario pueda realizar diferentes operaciones con la base de datos.
+Al inicio establece una conexión con la base de datos y carga los datos
+de prueba, los clientes y los operadores. Luego, muestra el menú con las
+opciones disponibles y lee la opción seleccionada por el usuario. Si ocurre un error, muestra 
+un mensaje de error. Si no los hay, dependiendo de la opción seleccionada por el usuario, 
+se ejecutarán las siguientes operaciones:
+
+1. Crear la base de datos.
+2. Crear las tablas.
+3. Crear las pk y fk.
+4. Borrar las pk y fk.
+5. Cargar los datos en las tablas.
+6. Crear los Stored procedures y triggers.
+7. Iniciar las pruebas.
+8. Cargar los datos en BoltDB
+9. Salir del programa
+
+== Conclusión
+
+En conclusión, en el presente trabajo practico tomamos decisiones clave como 
+crear la base de datos directamente desde la aplicación Go y separar
+las funciones en diferentes archivos. El principal inconveniente que tuvimos
+en dicho trabajo fueron los errores de sintáxis, debido que la mayoría
+de errores que surgieron en el código se debían a estos erorres.
+
+Finalmente, pudimos aplicar los conocimientos adquiridos a lo largo de la cursada. 
+Gracias a estos, logramos desarrollar un sistemas funcional y robusto 
+que cumple con los requisitos del trabajo practico. Además, tuvimos la 
+oportunidad de experimentar con herramientas que no conocíamos, como Go y BoltDB. 
+Nos llevamos con nosotros un gran aprendizaje que planeamos 
+aplicar y expandir en el futuro.

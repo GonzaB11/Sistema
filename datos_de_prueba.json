@@ -1,0 +1,114 @@
+[
+  {
+    "id_orden": 1,
+    "operacion": "nuevo llamado",
+    "id_cliente": 21
+  },
+  {
+    "id_orden": 2,
+    "operacion": "nuevo llamado",
+    "id_cliente": 4
+  },
+  {
+    "id_orden": 3,
+    "operacion": "atencion llamado"
+  },
+  {
+    "id_orden": 4,
+    "operacion": "atencion llamado"
+  },
+  {
+    "id_orden": 5,
+    "operacion": "nuevo llamado",
+    "id_cliente": 8
+  },
+  {
+    "id_orden": 6,
+    "operacion": "nuevo llamado",
+    "id_cliente": 12
+  },
+  {
+    "id_orden": 7,
+    "operacion": "nuevo llamado",
+    "id_cliente": 16
+  },
+  {
+    "id_orden": 8,
+    "operacion": "baja llamado",
+    "id_cola_atencion": 2
+  },
+  {
+    "id_orden": 9,
+    "operacion": "baja llamado",
+    "id_cola_atencion": 2
+  },
+  {
+    "id_orden": 10,
+    "operacion": "nuevo llamado",
+    "id_cliente": 20
+  },
+  {
+    "id_orden": 11,
+    "operacion": "alta tramite",
+    "id_cola_atencion": 1,
+    "tipo_tramite": "consulta",
+    "descripcion": "¿Es posible suspender temporalmente el servicio por 2 meses? (vacaciones)"
+  },
+  {
+    "id_orden": 12,
+    "operacion": "alta tramite",
+    "id_cola_atencion": 1,
+    "tipo_tramite": "reclamo",
+    "descripcion": "El monto de la última factura fue debitado dos veces en la tarjeta de crédito"
+  },
+  {
+    "id_orden": 13,
+    "operacion": "atencion llamado"
+  },
+  {
+    "id_orden": 14,
+    "operacion": "atencion llamado"
+  },
+  {
+    "id_orden": 15,
+    "operacion": "atencion llamado"
+  },
+  {
+    "id_orden": 16,
+    "operacion": "fin llamado",
+    "id_cola_atencion": 1
+  },
+  {
+    "id_orden": 17,
+    "operacion": "atencion llamado"
+  },
+  {
+    "id_orden": 18,
+    "operacion": "baja llamado",
+    "id_cola_atencion": 3
+  },
+  {
+    "id_orden": 19,
+    "operacion": "cierre tramite",
+    "id_tramite": 2,
+    "estado_cierre_tramite": "rechazado",
+    "respuesta_tramite": "Los dos cobros corresponden a facturas de meses diferentes"
+  },
+  {
+    "id_orden": 20,
+    "operacion": "cierre tramite",
+    "id_tramite": 1,
+    "estado_cierre_tramite": "solucionado",
+    "respuesta_tramite": "Es posible suspender el servicio, avisando con 20 días de anticipación."
+  },
+  {
+    "id_orden": 21,
+    "operacion": "fin llamado",
+    "id_cola_atencion": 4
+  },
+  {
+    "id_orden": 22,
+    "operacion": "fin llamado",
+    "id_cola_atencion": 5
+  }
+]
